@@ -1,0 +1,64 @@
+version: 2.0
+
+jobs:
+  checkout:
+    docker:
+      - image: golang:1.9-alpine
+      - image: mongo:3.4
+    working_directory: /go/src/github.com/undeadops/konveyer
+    steps:
+      - checkout
+      - save_cache:
+          key: v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+          paths:
+            - /go/src/github.com/undeadops/konveyer
+
+  build_go:
+    docker:
+      - image: golang:1.9-alpine
+      - image: mongo:3.4
+    working_directory: /go/src/github.com/undeadops/konveyer
+    steps:
+      - restore_cache:
+          keys:
+            - v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+      - run:
+          name: Wait for DB
+          command: timeout 15 bash -c 'while ! echo exit | nc localhost 27017; do sleep 10; done'
+      - run:
+          name: Run Tests
+          command: go test ../...
+
+  build_image:
+    machine:
+      enabled: true
+    working_directory: /go/src/github.com/undeadops/konveyer
+    steps:
+      - restore_cache:
+          keys:
+            - v1-repo-{{ .Environment.CIRCLE_SHA1 }}
+
+      - run:
+          name: Build Docker Image
+          command: |
+            docker build -t undeadops/konveyer:$CIRCLE_BUILD_NUM .
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker push undeadops/konveyer:$CIRCLE_BUILD_NUM
+
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - checkout
+      - build_go:
+          requires:
+            - checkout
+      - build_image:
+          filters:
+            branches:
+              only:
+                 - stage
+                 - prod
+          requires:
+            - build_go
