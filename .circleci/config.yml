@@ -27,7 +27,7 @@ jobs:
           command: timeout 15 bash -c 'while ! echo exit | nc localhost 27017; do sleep 10; done'
       - run:
           name: Run Tests
-          command: go test ../...
+          command: go test ./...
 
   build_image:
     machine:
