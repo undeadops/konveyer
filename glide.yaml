@@ -1,0 +1,7 @@
+package: github.com/undeadops/konveyer
+import:
+- package: k8s.io/client-go
+  version: v4.0.0
+- package: github.com/gin-gonic/gin
+- package: github.com/worg/merger
+- package: gopkg.in/mgo.v2
