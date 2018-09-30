@@ -184,9 +184,11 @@ func (env *Env) v1Router() chi.Router {
 	r.Route("/event/sync", func(r chi.Router) {
 		r.Post("/", env.TriggerRepoSync) // POST /event/sync
 	})
-	r.Route("/deploy/{namespace}/{appname}", func(r chi.Router) {
-		r.Get("/", env.GetDeployApp)    // GET /deploy/namespace/appname
-		r.Put("/", env.UpdateDeployApp) // PUT /deploy/namespace/appname
+	r.Route("/deployment/{namespace}/{appname}", func(r chi.Router) {
+		r.Get("/", env.GetDeployApp)                // GET /deployment/namespace/appname
+		r.Put("/image/{imageId}", env.SetDeployApp) // PUT /deployment/namespace/appname/image/master-1234abf
+		r.Put("/annotations", env.SetAnnotations)
+		r.Patch("/annotations", env.PatchAnnotations) // PATCH /deployment/namespace/app
 	})
 
 	return r
@@ -201,7 +203,7 @@ func (env *Env) TriggerRepoSync(w http.ResponseWriter, r *http.Request) {
 	render.Render(w, r, &App{})
 }
 
-// GetDeployApp - GET /v1/deploy/<namespace>/<appname>
+// GetDeployApp - GET /v1/deployment/<namespace>/<appname>
 func (env *Env) GetDeployApp(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	appname := chi.URLParam(r, "appname")
@@ -214,12 +216,20 @@ func (env *Env) GetDeployApp(w http.ResponseWriter, r *http.Request) {
 	render.Render(w, r, &App{Namespace: namespace, AppName: appname, Containers: containers})
 }
 
-// UpdateDeployApp - PUT /v1/deploy/<namespace>/<appname>
-func (env *Env) UpdateDeployApp(w http.ResponseWriter, r *http.Request) {
+// SetDeployApp - PUT /v1/deployment/<namespace>/<appname>
+func (env *Env) SetDeployApp(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	appname := chi.URLParam(r, "appname")
 
 	render.Render(w, r, &App{Namespace: namespace, AppName: appname})
+}
+
+// SetAnnotations - PUT /
+func (env *Env) SetAnnotations(w htt.ResponseWriter, r *http.Request) {
+	namespace := chi.URLParam(r, "namespace")
+	appname := chi.URLParam(r, "appname")
+
+	render.Render(w, r)
 }
 
 // App = Application metadata
