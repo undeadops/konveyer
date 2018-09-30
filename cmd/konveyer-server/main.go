@@ -15,7 +15,8 @@ import (
 	"github.com/go-chi/docgen"
 	"github.com/go-chi/render"
 	"github.com/go-chi/valve"
-	"github.com/undeadops/konveyer/util/repo"
+
+	"../../repo"
 )
 
 var routes = flag.Bool("routes", false, "Generate router documentation")
@@ -23,6 +24,7 @@ var routes = flag.Bool("routes", false, "Generate router documentation")
 // Env - Runtime Env
 type Env struct {
 	repo    *repo.Repo
+	repoPath    *string
 	stop    chan struct{}
 	stopped chan struct{}
 }
@@ -63,7 +65,7 @@ func main() {
 	stopChan := make(chan struct{})
 	stoppedChan := make(chan struct{})
 
-	env := &Env{repo: repo, stop: stopChan, stopped: stoppedChan}
+	env := &Env{repo: repo, repoPath: *pathFlag, stop: stopChan, stopped: stoppedChan}
 
 	// Our graceful valve shut-off package to manage code preemption and
 	// shutdown signaling.
@@ -185,10 +187,10 @@ func (env *Env) v1Router() chi.Router {
 		r.Post("/", env.TriggerRepoSync) // POST /event/sync
 	})
 	r.Route("/deployment/{namespace}/{appname}", func(r chi.Router) {
-		r.Get("/", env.GetDeployApp)                // GET /deployment/namespace/appname
-		r.Put("/image/{imageId}", env.SetDeployApp) // PUT /deployment/namespace/appname/image/master-1234abf
-		r.Put("/annotations", env.SetAnnotations)
-		r.Patch("/annotations", env.PatchAnnotations) // PATCH /deployment/namespace/app
+		r.Get("/", env.GetDeployApp)                  // GET /deployment/namespace/appname
+		r.Put("/image/{imageId}", env.SetDeployApp)   // PUT /deployment/namespace/appname/image/master-1234abf
+		r.Put("/annotations", env.SetAnnotations)     // PUT /deployment/namespace/appname -d '{ []map[string]string }'
+		r.Patch("/annotations", env.PatchAnnotations) // PATCH /deployment/namespace/app -d '{ []map[string]string }'
 	})
 
 	return r
