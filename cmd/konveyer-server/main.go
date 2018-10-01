@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/docgen"
 	"github.com/go-chi/render"
 	"github.com/go-chi/valve"
+	"github.com/sirupsen/logrus"
 
 	"github.com/undeadops/konveyer/repo"
 )
@@ -33,7 +34,7 @@ func main() {
 	var sshkeyFlag = flag.String("ssh_key", "/app/konveyer.key", "Path to SSH Key")
 	var pathFlag = flag.String("repo_path", "/code", "Path to store repo data")
 	var repoFlag = flag.String("repo", "", "Git Repo as Source of truth")
-	var syncSecs = flag.Int("sync_seconds", 300, "Time between Syncs")
+	var syncSecs = flag.Int("syncsec", 300, "Time between Syncs")
 	var gitWebhook = flag.Bool("use-webhook", false, "Use Webhook instead of timed Sync")
 
 	fmt.Println("Staring app...")
@@ -75,14 +76,28 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
+	// Setup the logger backend using sirupsen/logrus and configure
+	// it to use a custom JSONFormatter. See the logrus docs for how to
+	// configure the backend at github.com/sirupsen/logrus
+	logger := logrus.New()
+	logger.Formatter = &logrus.JSONFormatter{
+		// disable, as we set our own
+		DisableTimestamp: true,
+	}
+
 	// HTTP service running in this program as well. The valve context is set
 	// as a base context on the server listener at the point where we instantiate
 	// the server - look lower.
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
-	r.Use(middleware.URLFormat)
-	r.Use(render.SetContentType(render.ContentTypeJSON))
+	r.Use(
+		render.SetContentType(render.ContentTypeJSON),
+		middleware.RequestID,
+		NewStructuredLogger(logger),
+		middleware.URLFormat,
+		middleware.DefaultCompress,
+		middleware.RedirectSlashes,
+		middleware.Recoverer,
+	)
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("sup"))

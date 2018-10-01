@@ -1,9 +1,0 @@
-github.com/go-chi/chi v3.3.3+incompatible h1:KHkmBEMNkwKuK4FdQL7N2wOeB9jnIx7jR5wsuSBEFI8=
-github.com/go-chi/chi v3.3.3+incompatible/go.mod h1:eB3wogJHnLi3x/kFX2A+IbTBlXxmMeXJVKy9tTv1XzQ=
-github.com/go-chi/docgen v1.0.2 h1:BL7Y/SQlZMlhEI8dgukaEvF0AqdqG7axNdJsUVAzbRE=
-github.com/go-chi/docgen v1.0.2/go.mod h1:n7Wqcp0XCeIb/IHrd6hxqtFJzCklt0pKeo7uVUXkrdY=
-github.com/go-chi/render v1.0.1 h1:4/5tis2cKaNdnv9zFLfXzcquC9HbeZgCnxGnKrltBS8=
-github.com/go-chi/render v1.0.1/go.mod h1:pq4Rr7HbnsdaeHagklXub+p6Wd16Af5l9koip1OvJns=
-github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4 h1:JYZmrkBDj6LwUbsRysF9tpLnz59npoZSI3KG2XHqvHw=
-github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4/go.mod h1:F4ZINQr5T71wO1JOmdQsGTBew+njUAXn65LLGjuagwY=
-github.com/undeadops/konveyer v0.0.0-20180210173614-2bb37af8a724 h1:7eOj2uQtUeFyizWbTYSPrIunf0CkDUhEXRntqSwKEYM=
