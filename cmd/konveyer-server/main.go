@@ -16,17 +16,17 @@ import (
 	"github.com/go-chi/render"
 	"github.com/go-chi/valve"
 
-	"../../repo"
+	"github.com/undeadops/konveyer/repo"
 )
 
 var routes = flag.Bool("routes", false, "Generate router documentation")
 
 // Env - Runtime Env
 type Env struct {
-	repo    *repo.Repo
-	repoPath    *string
-	stop    chan struct{}
-	stopped chan struct{}
+	repo     *repo.Repo
+	repoPath string
+	stop     chan struct{}
+	stopped  chan struct{}
 }
 
 func main() {
@@ -227,11 +227,20 @@ func (env *Env) SetDeployApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetAnnotations - PUT /
-func (env *Env) SetAnnotations(w htt.ResponseWriter, r *http.Request) {
-	namespace := chi.URLParam(r, "namespace")
-	appname := chi.URLParam(r, "appname")
+func (env *Env) SetAnnotations(w http.ResponseWriter, r *http.Request) {
+	// namespace := chi.URLParam(r, "namespace")
+	// appname := chi.URLParam(r, "appname")
 
-	render.Render(w, r)
+	response := make(map[string]string)
+	response["message"] = "Set Annotations"
+	render.JSON(w, r, response)
+}
+
+// PatchAnnotations - PATCH /
+func (env *Env) PatchAnnotations(w http.ResponseWriter, r *http.Request) {
+	response := make(map[string]string)
+	response["message"] = "Patched Annotations"
+	render.JSON(w, r, response)
 }
 
 // App = Application metadata
