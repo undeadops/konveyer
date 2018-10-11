@@ -1,12 +1,14 @@
 package repo
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	"gopkg.in/src-d/go-git.v4"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
 )
 
@@ -178,4 +180,40 @@ func (repo *Repo) PullRepo() error {
 	}
 	fmt.Printf("head looks like: %s", h)
 	return err
+}
+
+// PushRepo - Push latest changes back up
+func (repo *Repo) PushRepo() error {
+	sshAuth, _ := ssh.NewPublicKeysFromFile("git", repo.SSHKey, "")
+
+	pushOpts := git.PushOptions{
+		Auth: sshAuth,
+	}
+	defer repo.Mutex.Unlock()
+	repo.Mutex.Lock()
+
+	w, err := repo.Clone.Worktree()
+	if err != nil {
+		return errors.New("Error: Unable to attach worktree")
+	}
+
+	commit, err := w.Commit("Commit Made By Konveyer", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Konveyer",
+			Email: "konveyer@konveyer.sh",
+			When:  time.Now(),
+		},
+	})
+
+	if err != nil {
+		return errors.New("Error: Unable to Commit Changed deployment image")
+	}
+
+	err = repo.Clone.Push(&pushOpts)
+	if err != nil {
+		return errors.New("Error: There was an error pushing Repo")
+	}
+
+	fmt.Printf("Commited: Commit ID: %s", commit)
+	return nil
 }

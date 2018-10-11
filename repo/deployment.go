@@ -44,11 +44,16 @@ func (repo *Repo) GetDeploymentImage(namespace, deployment string) (map[string]s
 }
 
 // SetDeploymentImage - Update Deployment file with new image, and commit it back to master
-func (repo *Repo) SetDeploymentImage(namespace, deployment string, image string) error {
+func (repo *Repo) SetDeploymentImage(namespace, deployment, image string) error {
 	deployFile := fmt.Sprintf("%s/manifests/%s/%s-deployment.yaml", repo.Path, namespace, deployment)
 
 	repo.Mutex.Lock()
 	defer repo.Mutex.Unlock()
+
+	err := repo.PullRepo()
+	if err != nil {
+		return errors.New("Error Pulling latest repo update before modifying")
+	}
 
 	ybytes, err := ioutil.ReadFile(deployFile)
 	if err != nil {
@@ -72,6 +77,26 @@ func (repo *Repo) SetDeploymentImage(namespace, deployment string, image string)
 	dbytes, err := yaml.Marshal(d)
 	if err != nil {
 		return errors.New("Error Converting to byte string")
+	}
+
+	err = ioutil.WriteFile(deployFile, dbytes, 0644)
+	if err != nil {
+		return errors.New("Error Writing modified manifest")
+	}
+
+	w, err := repo.Clone.Worktree()
+	if err != nil {
+		return errors.New("Error Inititating Worktree in git repo")
+	}
+
+	_, err = w.Add(deployFile)
+	if err != nil {
+		return errors.New("Error adding updated deployment file to Git")
+	}
+
+	repo.PushRepo()
+	if err != nil {
+		return errors.New("Error pushing Repo up to git-repo")
 	}
 
 	return nil
