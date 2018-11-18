@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"sync"
 	"time"
+	"encoding/json"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
@@ -37,13 +38,19 @@ func main() {
 	var syncSecs = flag.Int("syncsec", 300, "Time between Syncs")
 	var gitWebhook = flag.Bool("use-webhook", false, "Use Webhook instead of timed Sync")
 
-	fmt.Println("Staring app...")
+	logger := logrus.New()
+	logger.Formatter = &logrus.TextFormatter{
+		// disable, as we set our own
+		FullTimestamp: true,
+	}
+
+	logger.Info("Starting Up....")
 	//Gather environment variables that start with CI_
 	//var cluster Cluster
 
 	flag.Parse()
 
-	fmt.Println("Initializing Git Repo")
+	logger.Info("Initializing Git Repo")
 
 	sshKey := func(r *repo.Repo) {
 		r.SSHKey = *sshkeyFlag
@@ -61,7 +68,11 @@ func main() {
 		r.Mutex = &sync.RWMutex{}
 	}
 
-	repo := repo.New(*repoFlag, sshKey, gitPath, syncTime, mutex)
+    l := func(r *repo.Repo) {
+		r.Logger = logger
+	}
+
+	repo := repo.New(*repoFlag, sshKey, gitPath, syncTime, mutex, l)
 
 	stopChan := make(chan struct{})
 	stoppedChan := make(chan struct{})
@@ -79,11 +90,7 @@ func main() {
 	// Setup the logger backend using sirupsen/logrus and configure
 	// it to use a custom JSONFormatter. See the logrus docs for how to
 	// configure the backend at github.com/sirupsen/logrus
-	logger := logrus.New()
-	logger.Formatter = &logrus.JSONFormatter{
-		// disable, as we set our own
-		DisableTimestamp: true,
-	}
+
 
 	// HTTP service running in this program as well. The valve context is set
 	// as a base context on the server listener at the point where we instantiate
@@ -166,8 +173,7 @@ func main() {
 	go func() {
 		for range c {
 			// sig is a ^C, handle it
-			fmt.Println("shutting down..")
-
+			logger.Info("Shutting Down..")
 			// first valv
 			valv.Shutdown(20 * time.Second)
 
@@ -181,15 +187,16 @@ func main() {
 			// verify, in worst case call cancel via defer
 			select {
 			case <-time.After(21 * time.Second):
-				fmt.Println("not all connections done")
+				logger.Info("Not all connections are closed")
 			case <-ctx.Done():
 			}
 
 			// shutdown git
-			fmt.Println("Closing out Git")
+			logger.Info("Closing out Git repo")
 			close(stopChan)
 			<-stoppedChan
-			fmt.Println("Git Closed")
+
+			logger.Info("Git Closed")
 		}
 	}()
 
@@ -203,7 +210,7 @@ func (env *Env) v1Router() chi.Router {
 	})
 	r.Route("/deployment/{namespace}/{appname}", func(r chi.Router) {
 		r.Get("/", env.GetDeployApp)                  // GET /deployment/namespace/appname
-		r.Put("/image/{imageId}", env.SetDeployApp)   // PUT /deployment/namespace/appname/image/master-1234abf
+		r.Put("/image", env.SetDeployImage)   // PUT /deployment/namespace/appname/image -d '{ "container_name": "konveyer", "image": "undeadops/konveyer:master" }
 		r.Put("/annotations", env.SetAnnotations)     // PUT /deployment/namespace/appname -d '{ []map[string]string }'
 		r.Patch("/annotations", env.PatchAnnotations) // PATCH /deployment/namespace/app -d '{ []map[string]string }'
 	})
@@ -233,13 +240,56 @@ func (env *Env) GetDeployApp(w http.ResponseWriter, r *http.Request) {
 	render.Render(w, r, &App{Namespace: namespace, AppName: appname, Containers: containers})
 }
 
-// SetDeployApp - PUT /v1/deployment/<namespace>/<appname>
-func (env *Env) SetDeployApp(w http.ResponseWriter, r *http.Request) {
+// SetDeployImage - PUT /v1/deployment/<namespace>/<appname>
+//curl -X POST -d '{"image":"undeadops/konveyer:master-1234abc", "container":"konveyer"}' http://localhost:3000/v1/deployment/<namespace>/<appname>
+func (env *Env) SetDeployImage(w http.ResponseWriter, r *http.Request) {
 	namespace := chi.URLParam(r, "namespace")
 	appname := chi.URLParam(r, "appname")
+ 
+	var d DeployImage 
 
-	render.Render(w, r, &App{Namespace: namespace, AppName: appname})
+	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+		render.Render(w, r, ErrInvalidRequest(err))
+		return
+	}
+
+	//deployment, err := env.repo.GetDeploymentImage(namespace, appname)
+	//if err != nil {
+	//	render.Render(w, r, ErrInvalidRequest(err))
+	//	return
+	//}
+
+	// var msg map[string]interface {}
+	// msg["old_image"] = deployment[d.ContainerName]
+	// msg["new_image"] = d.Image
+
+	//LogEntrySetFields(r, msg)
+	// TODO: Handle multiple containers somehow... 
+	err := env.repo.SetDeploymentImage(namespace, appname, d.Image)
+	if err != nil {
+		render.Render(w, r, ErrServerUnable(err))
+		return
+	}
+	containers, err := env.repo.GetDeploymentImage(namespace, appname)
+	if err != nil {
+		render.Render(w, r, ErrInvalidRequest(err))
+		return
+	}
+
+	render.Status(r, http.StatusCreated)
+	//render.Render(w, r, NewArticleResponse(article))
+
+	render.Render(w, r, &App{Namespace: namespace, AppName: appname, Containers: containers})
 }
+
+// DeployImage - Modifications to make to deployment
+type DeployImage struct {
+	Namespace      string `json:"namespace"`
+	AppName        string `json:"app_name"`
+	ContainerName  string `json:"container_name"`
+	Image          string `json:"image"`
+}
+
 
 // SetAnnotations - PUT /
 func (env *Env) SetAnnotations(w http.ResponseWriter, r *http.Request) {
@@ -271,3 +321,62 @@ func (a *App) Render(w http.ResponseWriter, r *http.Request) error {
 	//rd.Elapsed = 10
 	return nil
 }
+
+
+//--
+// Error response payloads & renderers
+//--
+
+// ErrResponse renderer type for handling all sorts of errors.
+//
+// In the best case scenario, the excellent github.com/pkg/errors package
+// helps reveal information on the error, setting it on Err, and in the Render()
+// method, using it to set the application-specific error code in AppCode.
+type ErrResponse struct {
+	Err            error `json:"-"` // low-level runtime error
+	HTTPStatusCode int   `json:"-"` // http response status code
+
+	StatusText string `json:"status"`          // user-level status message
+	AppCode    int64  `json:"code,omitempty"`  // application-specific error code
+	ErrorText  string `json:"error,omitempty"` // application-level error message, for debugging
+}
+
+// Render - Render an Error Response Object
+func (e *ErrResponse) Render(w http.ResponseWriter, r *http.Request) error {
+	render.Status(r, e.HTTPStatusCode)
+	return nil
+}
+
+// ErrInvalidRequest - Data Payload is incorrect
+func ErrInvalidRequest(err error) render.Renderer {
+	return &ErrResponse{
+		Err:            err,
+		HTTPStatusCode: 400,
+		StatusText:     "Invalid request.",
+		ErrorText:      err.Error(),
+	}
+}
+
+// ErrRender - Error Rendering response
+func ErrRender(err error) render.Renderer {
+	return &ErrResponse{
+		Err:            err,
+		HTTPStatusCode: 422,
+		StatusText:     "Error rendering response.",
+		ErrorText:      err.Error(),
+	}
+}
+
+// ErrServerUnable - Error, Server unable to complete the request, check server logs
+func ErrServerUnable(err error) render.Renderer {
+	return &ErrResponse{
+		Err:            err,
+		HTTPStatusCode: 501,
+		StatusText:     "Server Unable to complete the request.",
+		ErrorText:      err.Error(),
+	}
+}
+
+// ErrNotFound - Resources not found
+var ErrNotFound = &ErrResponse{HTTPStatusCode: 404, StatusText: "Resource not found."}
+

@@ -2,11 +2,11 @@ package repo
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
@@ -21,6 +21,7 @@ type Repo struct {
 	SyncTime int    `json:"sync_time"`
 	Clone    *git.Repository
 	Mutex    *sync.RWMutex
+	Logger   *logrus.Logger
 }
 
 // New - Create New Git Repo Object
@@ -38,7 +39,7 @@ func New(url string, options ...func(*Repo)) *Repo {
 	}
 	err := r.attachRepo()
 	if err != nil {
-		fmt.Println("Error Attaching Repo")
+		r.Logger.WithFields(logrus.Fields{"git_path": r.Path}).Error("Error Attaching to Repo")
 		panic(err)
 	}
 	return &r
@@ -54,10 +55,12 @@ func (repo *Repo) Sync(stop, stopped chan struct{}) {
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Printf("GIT: Starting Sync")
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path},
+			).Info("Starting Git Sync")
 			repo.PullRepo()
 		case <-stop:
-			fmt.Println("tick: caller has told us to stop")
+			repo.Logger.Info("Stoping Sync")
 			return
 		}
 	}
@@ -79,18 +82,21 @@ func (repo *Repo) Sync(stop, stopped chan struct{}) {
 // AttachRepo - Create Clone of Git Repo
 func (repo *Repo) attachRepo() error {
 	defer repo.Mutex.Unlock()
-	fmt.Println("Path is: ", repo.Path)
+	repo.Logger.WithFields(
+		logrus.Fields{"git_path": repo.Path},
+	).Info("Attaching/Pulling Git Repo")
 	repo.Mutex.Lock()
+
+	// change to nuke existing, always starting with external git repo as source of truth
+	
 	if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
-		fmt.Println("Repo Base Directory")
 		err = os.MkdirAll(repo.Path, os.FileMode(0775))
 		if err != nil {
-			fmt.Println(err.Error())
+			return errors.New("Error: Unable to Create Code Path, " + err.Error())
 		}
-		fmt.Println("Clone Repo")
 		sshAuth, err := ssh.NewPublicKeysFromFile("git", repo.SSHKey, "")
 		if err != nil {
-			fmt.Println("Error: Problem Loading SSH Key")
+			return errors.New("Error: Problem Loading SSH Key, " + err.Error())
 		}
 		gitOpts := git.CloneOptions{
 			URL:  repo.URL,
@@ -101,11 +107,15 @@ func (repo *Repo) attachRepo() error {
 
 		r, err := git.PlainClone(repo.Path, false, &gitOpts)
 		if err != nil {
-			fmt.Println("Error: Unable to Clone repo, ", err)
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path},
+			).Error("Problem Cloning Repo")
 		}
 		w, err := r.Worktree()
 		if err != nil {
-			fmt.Println("Error: Unable to Clone repo, ", err)
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path},
+			).Error("Unable to set worktree on repo")
 		}
 		cloneOpts := git.PullOptions{
 			Auth: sshAuth,
@@ -114,39 +124,49 @@ func (repo *Repo) attachRepo() error {
 		}
 		err = w.Pull(&cloneOpts)
 		if err != nil {
-			fmt.Println("There was an Error with pull but it may be ok...", err)
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path, "error": err},
+			).Error("There was an error Pulling Repo, it may be ok?")
 		}
 		repo.Clone = r
 	} else {
-		fmt.Println("Attempting to open Repo")
+		repo.Logger.WithFields(
+			logrus.Fields{"git_path": repo.Path},
+		).Info("Attaching to existing Repo")
 		r, err := git.PlainOpen(repo.Path)
 		if err != nil {
-			fmt.Println(err.Error())
-			// Not sure if I need checking above...
+			return errors.New("Unable to attach to existing git repo, " + err.Error())
 		}
 		repo.Clone = r
 	}
 
 	w, err := repo.Clone.Worktree()
 	if err != nil {
-		fmt.Println("Error: Unable to Clone repo, ", err)
+		return errors.New("Unable to clone worktree, " + err.Error())
 	}
 	sshAuth, _ := ssh.NewPublicKeysFromFile("git", repo.SSHKey, "")
 	cloneOpts := git.PullOptions{
 		Auth: sshAuth,
 		//ReferenceName: plumbing.ReferenceName(repo.Branch),
 		//SingleBranch:  true,
+		Force: true,
 	}
 
 	// Pull the latest updates from Git, before making changes.
 	if err := w.Pull(&cloneOpts); err != nil {
+		h, _ := repo.Clone.Head()
 		if err == git.NoErrAlreadyUpToDate {
-			fmt.Printf("GIT: %s is already up-to-date.\n", repo.Path)
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path, "git_hash": h},
+			).Info("Repo already up-to date!")
 		} else {
-			fmt.Printf("Error: %s\n", err)
+			return errors.New("Unable to pull repo update")
 		}
 	}
-	fmt.Println("Success! We can has git repo")
+	h, _ := repo.Clone.Head()
+	repo.Logger.WithFields(
+		logrus.Fields{"git_path": repo.Path, "git_hash": h},
+	).Info("Sucess!")
 	return nil
 }
 
@@ -158,27 +178,29 @@ func (repo *Repo) PullRepo() error {
 		Auth: sshAuth,
 		//ReferenceName: plumbing.ReferenceName(repo.Branch),
 		//SingleBranch:  true,
+		Force: true,
 	}
 	defer repo.Mutex.Unlock()
 	repo.Mutex.Lock()
 	w, err := repo.Clone.Worktree()
 	if err != nil {
-		fmt.Println("Error: Unable to attach worktree, ", err)
+		return errors.New("Unable to clone worktree, " + err.Error())
 	}
 
 	// Pull the latest updates from Git, before making changes.
 	if err := w.Pull(&cloneOpts); err != nil {
 		if err == git.NoErrAlreadyUpToDate {
-			fmt.Printf("GIT: %s is already up-to-date.\n", repo.Path)
+			repo.Logger.WithFields(
+				logrus.Fields{"git_path": repo.Path},
+			).Info("Repo already up-to date!")
 		} else {
-			fmt.Printf("Error: %s\n", err)
+			return errors.New("Unable to pull repo update")
 		}
 	}
-	h, err := repo.Clone.Head()
-	if err != nil {
-		fmt.Printf("Error capturing head...\n")
-	}
-	fmt.Printf("head looks like: %s", h)
+	h, _ := repo.Clone.Head()
+	repo.Logger.WithFields(
+		logrus.Fields{"git_path": repo.Path, "git_hash": h},
+	).Info("Latest Git Pull")
 	return err
 }
 
@@ -189,8 +211,10 @@ func (repo *Repo) PushRepo() error {
 	pushOpts := git.PushOptions{
 		Auth: sshAuth,
 	}
-	defer repo.Mutex.Unlock()
-	repo.Mutex.Lock()
+	// Assumption is being made that whatever calls PushRepo already has a mutex lock
+	// Maybe context passing is the correct way for passing around the lock?
+	// defer repo.Mutex.Unlock()
+	// repo.Mutex.Lock()
 
 	w, err := repo.Clone.Worktree()
 	if err != nil {
@@ -214,6 +238,8 @@ func (repo *Repo) PushRepo() error {
 		return errors.New("Error: There was an error pushing Repo")
 	}
 
-	fmt.Printf("Commited: Commit ID: %s", commit)
+	repo.Logger.WithFields(
+		logrus.Fields{"git_path": repo.Path, "git_hash": commit},
+	).Info("Commited")
 	return nil
 }
