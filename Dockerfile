@@ -5,5 +5,5 @@ RUN cd /go/konveyer/cmd/konveyer-server && go install ./...
 
 # final stage
 FROM debian:stretch-slim
-COPY --from=build-env /go/bin/* /usr/bin/
+COPY --from=build-env /go/bin/* /bin/
 CMD ["konveyer-server"]
